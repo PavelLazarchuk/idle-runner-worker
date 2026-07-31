@@ -1,6 +1,6 @@
 {
     "name": "@idle-runner/worker",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Send heavy work to a Web Worker and await the result: a named task registry, AbortSignal cancellation, transferables and generator chunking. Zero dependencies.",
     "type": "module",
     "sideEffects": false,
