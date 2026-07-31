@@ -238,15 +238,6 @@ An unknown task name rejects the call with a clear error rather than going silen
 
 Worker-side. Marks a result to be handed over rather than copied. Return it directly from the task.
 
-## Not in v1
-
-Left out until there is real demand, not by oversight:
-
-- **A worker pool.** One worker per runner. Two runners give you two workers today, if that is what you want.
-- **Priorities.** Calls run FIFO. `priority` and `key` deduplication exist in [`@idle-runner/core`](https://github.com/PavelLazarchuk/idle-runner-core), where the queue is on the same thread and reordering it is cheap.
-- **Automatic restart after a worker crash.** Calls reject rather than hang — in flight and afterwards — and `terminate()` + `push` gives you a new worker, but the decision stays yours, because silently respawning a worker that crashes deterministically is an infinite loop with extra steps.
-- **`timeout`.** A wall-clock timeout is not the same feature as core's "run it even if the page never goes idle", and a timeout you cannot enforce inside a synchronous task is a false promise.
-
 ## License
 
 MIT
