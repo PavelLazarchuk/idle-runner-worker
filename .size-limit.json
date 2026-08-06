@@ -1,0 +1,24 @@
+[
+    {
+        "name": "ESM, everything",
+        "path": "dist/index.js",
+        "limit": "2.5 kB"
+    },
+    {
+        "name": "ESM, main thread only (createWorkerRunner)",
+        "path": "dist/index.js",
+        "import": "{ createWorkerRunner }",
+        "limit": "1.3 kB"
+    },
+    {
+        "name": "ESM, worker side only (defineWorkerTasks, transfer)",
+        "path": "dist/index.js",
+        "import": "{ defineWorkerTasks, transfer }",
+        "limit": "1.5 kB"
+    },
+    {
+        "name": "CJS, everything",
+        "path": "dist/index.cjs",
+        "limit": "2.5 kB"
+    }
+]
