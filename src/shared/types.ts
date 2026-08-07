@@ -31,6 +31,12 @@ export interface WorkerPushOptions {
 
 export interface WorkerRunnerOptions {
     onError?: (error: unknown) => void;
+    autoRestart?: boolean;
+    maxRestarts?: number;
+}
+
+export interface WorkerPoolOptions extends WorkerRunnerOptions {
+    size?: number;
 }
 
 export interface WorkerRunner<T extends Record<keyof T, AnyWorkerTask> = WorkerTasks> {

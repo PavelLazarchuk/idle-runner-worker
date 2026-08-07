@@ -14,6 +14,21 @@ import type {
     WorkerTasks,
 } from '../shared/types';
 import { createAbortError } from '../shared/abort-error';
+import { devWarn } from '../shared/dev';
+
+const DEFAULT_MAX_RESTARTS = 3;
+
+function resolveMaxRestarts(maxRestarts: number | undefined): number {
+    if (maxRestarts === undefined) return DEFAULT_MAX_RESTARTS;
+
+    if (!Number.isFinite(maxRestarts) || maxRestarts < 0) {
+        devWarn(`maxRestarts must be a finite number >= 0; using ${DEFAULT_MAX_RESTARTS}`);
+
+        return DEFAULT_MAX_RESTARTS;
+    }
+
+    return Math.floor(maxRestarts);
+}
 
 // Internal members are _-prefixed so the build can mangle them.
 interface PendingCall {
@@ -33,10 +48,13 @@ export function createWorkerRunner<T extends Record<keyof T, AnyWorkerTask> = Wo
     options: WorkerRunnerOptions = {}
 ): WorkerRunner<T> {
     const onError = options.onError ?? null;
+    const autoRestart = options.autoRestart === true;
+    const maxRestarts = resolveMaxRestarts(options.maxRestarts);
     const pending = new Map<number, PendingCall>();
     let worker: Worker | null = null;
     let crashMessage: string | null = null;
     let everAnswered = false;
+    let restarts = 0;
     let nextId = 1;
 
     const detach = (call: PendingCall): void => {
@@ -105,9 +123,36 @@ export function createWorkerRunner<T extends Record<keyof T, AnyWorkerTask> = Wo
             return;
         }
 
-        crashMessage = `worker failed: ${detail}; the worker is no longer usable — call terminate() before pushing again`;
+        if (autoRestart && restarts < maxRestarts) {
+            restarts++;
+            disposeWorker();
+            rejectAll(
+                new Error(
+                    `worker failed: ${detail}; every call in flight was rejected and the next push starts a fresh worker`
+                ),
+                false
+            );
+
+            return;
+        }
+
+        const exhausted = autoRestart ? ` after ${restarts} restart(s)` : '';
+        crashMessage = `worker failed: ${detail}; the worker is no longer usable${exhausted} — call terminate() before pushing again`;
 
         rejectAll(new Error(crashMessage), false);
+    };
+
+    const disposeWorker = (): void => {
+        const target = worker;
+        worker = null;
+        everAnswered = false;
+
+        if (!target) return;
+
+        target.removeEventListener('message', handleMessage);
+        target.removeEventListener('messageerror', handleMessageError);
+        target.removeEventListener('error', handleWorkerError);
+        target.terminate();
     };
 
     const handleMessageError = (): void => {
@@ -222,19 +267,11 @@ export function createWorkerRunner<T extends Record<keyof T, AnyWorkerTask> = Wo
             rejectAll(reason === undefined ? createAbortError() : reason, true);
         },
         terminate(): void {
-            const target = worker;
-            worker = null;
             crashMessage = null;
-            everAnswered = false;
+            restarts = 0;
 
+            disposeWorker();
             rejectAll(createAbortError(), false);
-
-            if (!target) return;
-
-            target.removeEventListener('message', handleMessage);
-            target.removeEventListener('messageerror', handleMessageError);
-            target.removeEventListener('error', handleWorkerError);
-            target.terminate();
         },
         get size(): number {
             return pending.size;

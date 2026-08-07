@@ -145,7 +145,36 @@ Only the first is fatal. A worker that has never spoken is assumed to be dead �
 
 An uncaught error in a worker that **has** already answered a call is a different thing: the worker is demonstrably alive, and the throw belongs to something else running in it — a stray timer, an unrelated listener, a library with an opinion. Workers survive uncaught errors, so calls in flight still get their answers and the runner keeps serving. The error is reported through `onError` if you passed one; the browser logs it either way.
 
-Recovery from a crash is deliberately manual in v1: `terminate()`, then push again to get a fresh worker.
+Recovery from a crash is manual by default: `terminate()`, then push again to get a fresh worker. Pass `autoRestart` to have the runner do it for you — the dead worker is terminated and unhooked, and the next `push` starts a new one:
+
+```ts
+const runner = createWorkerRunner(factory, { autoRestart: true });
+```
+
+Calls in flight are still rejected, and **nothing is retried**: a payload that killed a worker would kill its replacement just as reliably, so re-sending it is how you turn one crash into a loop. Retry at the call site, where you know whether the call is safe to repeat. For the same reason the restarts are budgeted — after `maxRestarts` (default 3) consecutive workers die before answering, the runner stops respawning and marks itself crashed, which is what a script that cannot load looks like. A worker that has answered at least once is never restarted: it is demonstrably alive, and its uncaught errors belong to something else running in it.
+
+## Pooling
+
+One runner owns one worker, and one worker runs one call at a time — a second `push` waits for the first to finish. When the work is genuinely parallel, `createWorkerPool` spreads it over several workers behind the same interface:
+
+```ts
+import { createWorkerPool } from '@idle-runner/worker';
+
+const runner = createWorkerPool<typeof tasks>(
+    () => new Worker(new URL('./tasks.worker.ts', import.meta.url), { type: 'module' }),
+    { size: 4 }
+);
+
+const [a, b, c] = await Promise.all([
+    runner.push('resize', first),
+    runner.push('resize', second),
+    runner.push('resize', third),
+]); // three threads, not three turns
+```
+
+`push`, `clear`, `terminate` and `size` mean exactly what they do on a single runner, so swapping one in is a one-line change. Each call goes to the least busy worker, and workers are still created lazily — a pool that never sees two calls at once never starts a second thread. `size` defaults to `hardwareConcurrency - 1`, capped at 4.
+
+Workers share nothing. A task that caches something between calls, or that expects to see every call, must stay on a single `createWorkerRunner` — on a pool it would see an arbitrary subset.
 
 For calls nobody awaited — and for a non-fatal error inside the worker, which belongs to no call at all — pass `onError` when creating the runner. Aborts are never reported through it.
 
@@ -208,9 +237,11 @@ If the environment has no `Worker` at all, the failure surfaces as a **rejected*
 
 `factory` is called at most once per worker, on the first `push`. Passing a factory rather than a `Worker` is what makes creation lazy — and it keeps the `new Worker(new URL(...))` form intact, which is the only form bundlers can statically detect.
 
-| Option    | Type                       | Description                                                                                           |
-| --------- | -------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `onError` | `(error: unknown) => void` | Error channel for calls nobody awaited, and for worker errors that belong to no call. Aborts are not. |
+| Option        | Type                       | Default | Description                                                                                                                                                     |
+| ------------- | -------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `onError`     | `(error: unknown) => void` | —       | Error channel for calls nobody awaited, and for worker errors that belong to no call. Aborts are not.                                                           |
+| `autoRestart` | `boolean`                  | `false` | Replace a worker that died before answering instead of marking the runner crashed. Calls in flight still reject, and nothing is retried. See [Errors](#errors). |
+| `maxRestarts` | `number`                   | `3`     | Consecutive replacements allowed before the failure is treated as fatal. `terminate()` resets the budget.                                                       |
 
 | Member                        | Description                                                                                                                           |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -225,6 +256,16 @@ Per-call options:
 | ---------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `signal`   | `AbortSignal`    | Abort this one call. Rejects with `AbortError` immediately. See [Cancelling](#cancelling) for what the worker can stop. |
 | `transfer` | `Transferable[]` | Hand these over instead of copying them. They are detached on this side.                                                |
+
+### `createWorkerPool(factory, options?)`
+
+Several workers behind the `createWorkerRunner` interface, each call routed to the least busy one. Takes every `createWorkerRunner` option, applied to each worker, plus:
+
+| Option | Type     | Default                          | Description                                                                 |
+| ------ | -------- | -------------------------------- | --------------------------------------------------------------------------- |
+| `size` | `number` | `hardwareConcurrency - 1`, max 4 | How many workers the pool may own. Each is created lazily. Clamped to >= 1. |
+
+`factory` is called once per worker the pool actually starts. See [Pooling](#pooling) for when a pool is the wrong tool.
 
 ### `defineWorkerTasks(tasks)`
 
