@@ -172,7 +172,7 @@ const [a, b, c] = await Promise.all([
 ]); // three threads, not three turns
 ```
 
-`push`, `clear`, `terminate` and `size` mean exactly what they do on a single runner, so swapping one in is a one-line change. Each call goes to the least busy worker, and workers are still created lazily — a pool that never sees two calls at once never starts a second thread. `size` defaults to `hardwareConcurrency - 1`, capped at 4.
+`push`, `clear`, `terminate` and `size` mean exactly what they do on a single runner, so swapping one in is a one-line change. Each call goes to the least busy worker, and workers are still created lazily — a pool that never sees two calls at once never starts a second thread. `size` defaults to `hardwareConcurrency - 1`, capped at 4, and to 2 where the browser does not report `hardwareConcurrency`.
 
 Workers share nothing. A task that caches something between calls, or that expects to see every call, must stay on a single `createWorkerRunner` — on a pool it would see an arbitrary subset.
 
@@ -229,6 +229,8 @@ Both halves ship from one entry point. They share nothing at runtime and the pac
 
 Safe to import on a server. No worker is created until the first `push`, and `defineWorkerTasks()` outside a worker realm warns and no-ops instead of installing a listener that could never fire. No `typeof window` guard, no dynamic import. Covered by [`test/ssr.test.ts`](test/ssr.test.ts).
 
+A worker realm here means the Web Worker one — a global `postMessage` and `addEventListener`, and no `window`. Node's own `worker_threads` is not it: there the channel is `parentPort`, so `defineWorkerTasks()` warns and registers nothing. This package is for browser workers; a Node thread pool is a different tool.
+
 If the environment has no `Worker` at all, the failure surfaces as a **rejected** `push` — never as a throw out of `createWorkerRunner` or at import time.
 
 ## API
@@ -261,9 +263,9 @@ Per-call options:
 
 Several workers behind the `createWorkerRunner` interface, each call routed to the least busy one. Takes every `createWorkerRunner` option, applied to each worker, plus:
 
-| Option | Type     | Default                          | Description                                                                 |
-| ------ | -------- | -------------------------------- | --------------------------------------------------------------------------- |
-| `size` | `number` | `hardwareConcurrency - 1`, max 4 | How many workers the pool may own. Each is created lazily. Clamped to >= 1. |
+| Option | Type     | Default                          | Description                                                                                                                                       |
+| ------ | -------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `size` | `number` | `hardwareConcurrency - 1`, max 4 | How many workers the pool may own. Each is created lazily. Clamped to >= 1. Falls back to 2 where `navigator.hardwareConcurrency` is unavailable. |
 
 `factory` is called once per worker the pool actually starts. See [Pooling](#pooling) for when a pool is the wrong tool.
 

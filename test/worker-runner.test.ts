@@ -132,6 +132,16 @@ describe('createWorkerRunner — failures', () => {
         expect(runner.size).toBe(0);
     });
 
+    it('keeps the original clone failure as the cause', async () => {
+        const { worker, runner } = makeRunner();
+        const clone = new Error('DataCloneError: fn could not be cloned');
+        worker.postError = clone;
+
+        await expect(runner.push('a', () => 'a function')).rejects.toMatchObject({
+            cause: clone,
+        });
+    });
+
     it('an uncaught worker error rejects everything in flight instead of hanging it', async () => {
         const { worker, runner } = makeRunner();
         const first = runner.push('a');

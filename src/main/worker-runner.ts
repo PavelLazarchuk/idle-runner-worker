@@ -30,6 +30,12 @@ function resolveMaxRestarts(maxRestarts: number | undefined): number {
     return Math.floor(maxRestarts);
 }
 
+function withCause(error: Error, cause: unknown): Error {
+    (error as Error & { cause?: unknown }).cause = cause;
+
+    return error;
+}
+
 // Internal members are _-prefixed so the build can mangle them.
 interface PendingCall {
     _resolve: (value: unknown) => void;
@@ -252,8 +258,11 @@ export function createWorkerRunner<T extends Record<keyof T, AnyWorkerTask> = Wo
                     pending.delete(id);
                     detach(call);
                     reject(
-                        new Error(
-                            `payload for task "${name}" could not be sent to the worker: ${describeValue(error)}`
+                        withCause(
+                            new Error(
+                                `payload for task "${name}" could not be sent to the worker: ${describeValue(error)}`
+                            ),
+                            error
                         )
                     );
                 }
